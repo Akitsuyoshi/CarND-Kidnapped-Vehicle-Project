@@ -22,6 +22,7 @@ using std::string;
 using std::vector;
 using std::default_random_engine;
 using std::normal_distribution;
+using std::numeric_limits;
 
 void ParticleFilter::init(double x, double y, double theta, double std[]) {
   /**
@@ -88,7 +89,29 @@ void ParticleFilter::dataAssociation(vector<LandmarkObs> predicted,
    *   probably find it useful to implement this method and use it as a helper 
    *   during the updateWeights phase.
    */
+  for(LandmarkObs obs: observations) {
+    // Get x and y observation codinates
+    double x_obs = obs.x;
+    double y_obs = obs.y;
 
+    // Placeholder for holding min distance between predicted and observed measurement
+    double distance_min = numeric_limits<double>::infinity();
+
+    // Find the most colosest predicted measurement
+    for(LandmarkObs predicted_obs: predicted) {
+      double current_distance = dist(obs.x, obs.y, predicted_obs.x, predicted_obs.y);
+      if (distance_min > current_distance) {
+        continue;
+      }
+
+      // Update observation with current most closest predicted measurement
+      obs.id = predicted_obs.id;
+      obs.x = predicted_obs.x;
+      obs.y = predicted_obs.y;
+      // Set current distance as a distance min
+      distance_min = current_distance;
+    }
+  }
 }
 
 void ParticleFilter::updateWeights(double sensor_range, double std_landmark[], 
@@ -107,7 +130,72 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
    *   and the following is a good resource for the actual equation to implement
    *   (look at equation 3.33) http://planning.cs.uiuc.edu/node99.html
    */
+  double std_x = std_landmark[0], std_y = std_landmark[1];
+  double gauss_norm = 1 / (2 * M_PI * std_x * std_y);
 
+  for(Particle& p: particles) {
+    // Get x and y partial codinates
+    double x_part = p.x;
+    double y_part = p.y;
+
+    vector<LandmarkObs> transformed_observations = observations;
+    vector<LandmarkObs> nearest_observations;
+    vector<LandmarkObs> predicted;
+    vector<int> associations;
+    vector<double> sense_x;
+    vector<double> sense_y;
+
+    // Update each observation cordinates from vehicles to map system
+    for(LandmarkObs obs: transformed_observations) {
+      // Get x and y observation cordinates, on a vehicle's system
+      double x_obs = obs.x;
+      double y_obs = obs.y;
+      const double theta = -M_PI / 2;
+
+      // Get observation cordinates, on a map system
+      double x_map_obs = x_part + (cos(theta) * x_obs) - (sin(theta) * y_obs);
+      double y_map_obs = y_part + (sin(theta) * x_obs) + (cos(theta) * y_obs);
+
+      // Update cordinates
+      obs.x = x_map_obs;
+      obs.y = y_map_obs;
+    }
+
+    // Assign observations having map cordinate to nearest
+    nearest_observations = transformed_observations;
+
+    // Get predicted landmarks from Map
+    for(Map::single_landmark_s landmark: map_landmarks.landmark_list) {
+      double distance = dist(x_part, y_part, landmark.x_f, landmark.y_f);
+      if (distance > sensor_range) {
+        continue;
+      }
+      predicted.push_back(LandmarkObs{landmark.id_i, landmark.x_f, landmark.y_f});
+    }
+
+    // Update observations with nearest Map landmarks
+    dataAssociation(predicted, nearest_observations);
+
+    // Calculate weights
+    for (unsigned int i = 0; i < nearest_observations.size(); i++) {
+      LandmarkObs transformed_obs = transformed_observations[i];
+      LandmarkObs nearest_obs = nearest_observations[i];
+
+      double exponent = (pow(transformed_obs.x - nearest_obs.x, 2) / (2 * pow(std_x, 2)))
+                      + (pow(transformed_obs.y - nearest_obs.y, 2) / (2 * pow(std_y, 2)));
+
+      // Update weight
+      p.weight *= gauss_norm * exp(-exponent);
+
+      // Update associations, sense_x, and sense_y
+      associations.push_back(nearest_obs.id);
+      sense_x.push_back(nearest_obs.x);
+      sense_y.push_back(nearest_obs.y);
+    }
+
+    // Set associations to partial
+    SetAssociations(p, associations, sense_x, sense_y);
+  }
 }
 
 void ParticleFilter::resample() {
