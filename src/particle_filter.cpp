@@ -34,6 +34,7 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
    * NOTE: Consult particle_filter.h for more information about this method 
    *   (and others in this file).
    */
+  num_particles = 400;
   default_random_engine gen;
   double std_x = std[0], std_y = std[1], std_theta = std[2];
 
@@ -42,12 +43,11 @@ void ParticleFilter::init(double x, double y, double theta, double std[]) {
   normal_distribution<double> dist_y(y, std_y);
   normal_distribution<double> dist_theta(theta, std_theta);
 
-  num_particles = 400;
   for (int i = 0; i < num_particles; i++) {
     particles.push_back(Particle{i, dist_x(gen), dist_y(gen), dist_theta(gen), 1});
     weights.push_back(1);
   }
-  // Finish initialization
+
   is_initialized = true;
 }
 
@@ -64,19 +64,21 @@ void ParticleFilter::prediction(double delta_t, double std_pos[],
   double std_x = std_pos[0], std_y = std_pos[1], std_theta = std_pos[2];
 
   for(Particle& p: particles) {
+    double x, y, theta;
+
     if (fabs(yaw_rate) > 0.001) {
-  	  p.x += velocity / yaw_rate * (sin(p.theta + (yaw_rate * delta_t)) - sin(p.theta));
-      p.y += velocity / yaw_rate * (cos(p.theta) - cos(p.theta + (yaw_rate * delta_t)));
-      p.theta += yaw_rate * delta_t;
+  	  x = p.x + velocity / yaw_rate * (sin(p.theta + (yaw_rate * delta_t)) - sin(p.theta));
+      y = p.y + velocity / yaw_rate * (cos(p.theta) - cos(p.theta + (yaw_rate * delta_t)));
+      theta = p.theta + yaw_rate * delta_t;
     } else {
-      p.x += velocity * cos(p.theta) * delta_t;
-      p.y += velocity * sin(p.theta) * delta_t;
+      x = p.x + velocity * cos(p.theta) * delta_t;
+      y = p.y + velocity * sin(p.theta) * delta_t;
     }
    
     // For normal ditribution of x, y, and theta respectively
-    normal_distribution<double> dist_x(p.x, std_x);
-    normal_distribution<double> dist_y(p.y, std_y);
-    normal_distribution<double> dist_theta(p.theta, std_theta);
+    normal_distribution<double> dist_x(x, std_x);
+    normal_distribution<double> dist_y(y, std_y);
+    normal_distribution<double> dist_theta(theta, std_theta);
 
     p.x = dist_x(gen);
     p.y = dist_y(gen);
@@ -96,19 +98,18 @@ void ParticleFilter::dataAssociation(vector<LandmarkObs> predicted,
    */
   for (int i = 0; i < observations.size(); i++) {
     LandmarkObs obs = observations[i];
-    // Placeholder for holding min distance between predicted and observed measurement
     double distance_min = numeric_limits<double>::infinity();
+    double distance_current;
 
-    // Find the most colosest predicted measurement
+    // Find the most colosest map landmark, and assign it to corresponding observation
     for(LandmarkObs predicted_obs: predicted) {
-      double current_distance = dist(obs.x, obs.y, predicted_obs.x, predicted_obs.y);
-      if (distance_min < current_distance) {
+      distance_current = dist(obs.x, obs.y, predicted_obs.x, predicted_obs.y);
+      if (distance_min < distance_current) {
         continue;
       }
-      
+      // Assign current most closest landmark
       observations[i] = predicted_obs;
-      // Set current distance as a distance min
-      distance_min = current_distance;
+      distance_min = distance_current;
     }
   }
 }
@@ -150,13 +151,14 @@ void ParticleFilter::updateWeights(double sensor_range, double std_landmark[],
       LandmarkObs obs = observations[i];
       double x_obs = obs.x;
       double y_obs = obs.y;
+      double distance;  // distance between partial and observation
 
-      // Get landmark on a map cordinate system
+      // landmark on a map cordinate system
       LandmarkObs landmark = {i,
                               x_part + (cos(theta_part) * x_obs) - (sin(theta_part) * y_obs),
                               y_part + (sin(theta_part) * x_obs) + (cos(theta_part) * y_obs)};
 
-      double distance = dist(x_part, y_part, landmark.x, landmark.y);
+      distance = dist(x_part, y_part, landmark.x, landmark.y);
       if (distance > sensor_range) {
         continue;
       }
